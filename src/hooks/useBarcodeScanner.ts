@@ -1,0 +1,129 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  BarcodeFormat,
+  DecodeHintType,
+  type Exception,
+  NotFoundException,
+} from '@zxing/library'
+import { BrowserMultiFormatReader, type IScannerControls } from '@zxing/browser'
+import type { ScannerStatus } from '../types'
+
+type DecodedValue = {
+  value: string
+  format: string
+}
+
+const SUPPORTED_FORMATS = [
+  BarcodeFormat.QR_CODE,
+  BarcodeFormat.CODE_128,
+  BarcodeFormat.CODE_39,
+  BarcodeFormat.CODE_93,
+  BarcodeFormat.EAN_13,
+  BarcodeFormat.EAN_8,
+  BarcodeFormat.UPC_A,
+  BarcodeFormat.UPC_E,
+  BarcodeFormat.ITF,
+  BarcodeFormat.CODABAR,
+]
+
+export const useBarcodeScanner = (
+  onDecoded: (data: DecodedValue) => void,
+  preferredDeviceId?: string,
+) => {
+  const [status, setStatus] = useState<ScannerStatus>('idle')
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([])
+
+  const controlsRef = useRef<IScannerControls | null>(null)
+
+  const hints = useMemo(() => {
+    const map = new Map<DecodeHintType, unknown>()
+    map.set(DecodeHintType.POSSIBLE_FORMATS, SUPPORTED_FORMATS)
+    return map
+  }, [])
+
+  const readerRef = useRef(
+    new BrowserMultiFormatReader(hints, {
+      delayBetweenScanAttempts: 120,
+      delayBetweenScanSuccess: 600,
+    }),
+  )
+
+  const refreshDevices = useCallback(async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) {
+      setDevices([])
+      return
+    }
+
+    const mediaDevices = await BrowserMultiFormatReader.listVideoInputDevices()
+    setDevices(mediaDevices)
+  }, [])
+
+  const stop = useCallback(() => {
+    controlsRef.current?.stop()
+    controlsRef.current = null
+    setStatus('idle')
+  }, [])
+
+  const start = useCallback(
+    async (videoElement: HTMLVideoElement | null) => {
+      if (!videoElement) {
+        return
+      }
+
+      stop()
+      setStatus('starting')
+      setErrorMessage(null)
+
+      try {
+        const constraints: MediaStreamConstraints = preferredDeviceId
+          ? { video: { deviceId: { exact: preferredDeviceId } } }
+          : { video: { facingMode: { ideal: 'environment' } } }
+
+        const controls = await readerRef.current.decodeFromConstraints(
+          constraints,
+          videoElement,
+          (result, error) => {
+            if (result) {
+              onDecoded({
+                value: result.getText(),
+                format: BarcodeFormat[result.getBarcodeFormat()] ?? 'UNKNOWN',
+              })
+              return
+            }
+
+            if (error && !(error instanceof NotFoundException)) {
+              const decodeError = error as Exception
+              setErrorMessage(decodeError.message || 'Error al decodificar el código.')
+            }
+          },
+        )
+
+        controlsRef.current = controls
+        setStatus('running')
+        await refreshDevices()
+      } catch (error) {
+        setStatus('error')
+        const message = error instanceof Error ? error.message : 'No se pudo iniciar la cámara.'
+        setErrorMessage(message)
+      }
+    },
+    [onDecoded, preferredDeviceId, refreshDevices, stop],
+  )
+
+  useEffect(() => {
+    void refreshDevices()
+
+    return () => {
+      stop()
+    }
+  }, [refreshDevices, stop])
+
+  return {
+    status,
+    errorMessage,
+    devices,
+    start,
+    stop,
+  }
+}
