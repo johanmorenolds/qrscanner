@@ -49,14 +49,29 @@ export const useBarcodeScanner = (
     }),
   )
 
+  const hasCameraApi = () =>
+    typeof navigator !== 'undefined' &&
+    !!navigator.mediaDevices &&
+    typeof navigator.mediaDevices.getUserMedia === 'function'
+
+  const isSecureOrigin = () =>
+    typeof window !== 'undefined' &&
+    (window.isSecureContext ||
+      window.location.hostname === 'localhost' ||
+      window.location.hostname === '127.0.0.1')
+
   const refreshDevices = useCallback(async () => {
-    if (!navigator.mediaDevices?.enumerateDevices) {
+    if (!hasCameraApi() || !navigator.mediaDevices.enumerateDevices) {
       setDevices([])
       return
     }
 
-    const mediaDevices = await BrowserMultiFormatReader.listVideoInputDevices()
-    setDevices(mediaDevices)
+    try {
+      const mediaDevices = await BrowserMultiFormatReader.listVideoInputDevices()
+      setDevices(mediaDevices)
+    } catch {
+      setDevices([])
+    }
   }, [])
 
   const stop = useCallback(() => {
@@ -76,6 +91,18 @@ export const useBarcodeScanner = (
       setErrorMessage(null)
 
       try {
+        if (!isSecureOrigin()) {
+          throw new Error(
+            'La cámara requiere HTTPS en iPhone/Safari. Abre la app con un enlace https:// y vuelve a intentar.',
+          )
+        }
+
+        if (!hasCameraApi()) {
+          throw new Error(
+            'Este navegador no expone navigator.mediaDevices.getUserMedia. Verifica permisos de cámara y usa Safari actualizado.',
+          )
+        }
+
         const constraints: MediaStreamConstraints = preferredDeviceId
           ? { video: { deviceId: { exact: preferredDeviceId } } }
           : { video: { facingMode: { ideal: 'environment' } } }
