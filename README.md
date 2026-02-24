@@ -52,7 +52,14 @@ Nota importante: algunos navegadores móviles exigen HTTPS para acceder a cámar
 
 ### Opción B (recomendada para cámara en móvil): HTTPS público
 
-Publica en GitHub Pages, Vercel o Netlify para usar HTTPS. Con HTTPS la cámara funciona de forma consistente en móvil.
+Usa un túnel HTTPS temporal:
+
+```bash
+brew install cloudflared
+npm run dev:https
+```
+
+Ese comando mostrará una URL `https://...trycloudflare.com` para abrirla en el celular.
 
 ## Calidad y validación
 
