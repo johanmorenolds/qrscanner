@@ -13,6 +13,19 @@ type DecodedValue = {
   format: string
 }
 
+type LegacyNavigator = Navigator & {
+  getUserMedia?: (
+    constraints: MediaStreamConstraints,
+    success: (stream: MediaStream) => void,
+    error: (err: unknown) => void,
+  ) => void
+  webkitGetUserMedia?: (
+    constraints: MediaStreamConstraints,
+    success: (stream: MediaStream) => void,
+    error: (err: unknown) => void,
+  ) => void
+}
+
 const SUPPORTED_FORMATS = [
   BarcodeFormat.QR_CODE,
   BarcodeFormat.CODE_128,
@@ -51,8 +64,9 @@ export const useBarcodeScanner = (
 
   const hasCameraApi = () =>
     typeof navigator !== 'undefined' &&
-    !!navigator.mediaDevices &&
-    typeof navigator.mediaDevices.getUserMedia === 'function'
+    (typeof navigator.mediaDevices?.getUserMedia === 'function' ||
+      typeof (navigator as LegacyNavigator).webkitGetUserMedia === 'function' ||
+      typeof (navigator as LegacyNavigator).getUserMedia === 'function')
 
   const isSecureOrigin = () =>
     typeof window !== 'undefined' &&
@@ -61,7 +75,7 @@ export const useBarcodeScanner = (
       window.location.hostname === '127.0.0.1')
 
   const refreshDevices = useCallback(async () => {
-    if (!hasCameraApi() || !navigator.mediaDevices.enumerateDevices) {
+    if (!navigator.mediaDevices?.enumerateDevices) {
       setDevices([])
       return
     }
@@ -78,6 +92,23 @@ export const useBarcodeScanner = (
     controlsRef.current?.stop()
     controlsRef.current = null
     setStatus('idle')
+  }, [])
+
+  const requestUserMedia = useCallback((constraints: MediaStreamConstraints): Promise<MediaStream> => {
+    if (navigator.mediaDevices?.getUserMedia) {
+      return navigator.mediaDevices.getUserMedia(constraints)
+    }
+
+    const legacyNavigator = navigator as LegacyNavigator
+    const legacyGetUserMedia = legacyNavigator.webkitGetUserMedia ?? legacyNavigator.getUserMedia
+
+    if (!legacyGetUserMedia) {
+      throw new Error('No hay API de cámara disponible en este navegador.')
+    }
+
+    return new Promise((resolve, reject) => {
+      legacyGetUserMedia.call(legacyNavigator, constraints, resolve, reject)
+    })
   }, [])
 
   const start = useCallback(
@@ -107,8 +138,10 @@ export const useBarcodeScanner = (
           ? { video: { deviceId: { exact: preferredDeviceId } } }
           : { video: { facingMode: { ideal: 'environment' } } }
 
-        const controls = await readerRef.current.decodeFromConstraints(
-          constraints,
+        const mediaStream = await requestUserMedia(constraints)
+
+        const controls = await readerRef.current.decodeFromStream(
+          mediaStream,
           videoElement,
           (result, error) => {
             if (result) {
@@ -135,7 +168,7 @@ export const useBarcodeScanner = (
         setErrorMessage(message)
       }
     },
-    [onDecoded, preferredDeviceId, refreshDevices, stop],
+    [onDecoded, preferredDeviceId, refreshDevices, requestUserMedia, stop],
   )
 
   useEffect(() => {
