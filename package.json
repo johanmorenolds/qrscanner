@@ -7,6 +7,7 @@
     "dev": "vite --host",
     "dev:phone": "vite --host 0.0.0.0 --port 5173",
     "dev:https": "./scripts/run-https-tunnel.sh",
+    "dev:https:renew": "./scripts/recreate-link-and-alert.sh",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test": "vitest run",
